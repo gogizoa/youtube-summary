@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+google-api-python-client
+youtube-transcript-api
+pydantic
+pydantic_settings
+google-generativeai
+faiss-cpu
+langchain-text-splitters
+numpy
+langchain-community
