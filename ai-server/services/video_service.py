@@ -13,8 +13,8 @@ class VideoService:
         genai.configure(api_key=settings.GEMINI_API_KEY)
         self.model = genai.GenerativeModel('gemini-1.5-flash')
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
+            chunk_size=300,
+            chunk_overlap=50
         )
         self.vector_stores = {}
 
@@ -27,7 +27,7 @@ class VideoService:
         )
         return result['embedding']
 
-    def create_vector_store(self, texts: list[str]) -> FAISS:
+    def create_vector_store(self, texts: list[str], times: list[float] = []) -> FAISS:
         """텍스트 리스트로부터 FAISS 벡터 저장소를 생성합니다."""
         class CustomEmbeddings:
             def __init__(self, embed_func):
@@ -41,9 +41,13 @@ class VideoService:
 
         custom_embeddings = CustomEmbeddings(self.get_embedding)
 
+        # 메타데이터에 시작 시간 포함
+        metadatas = [{"start": time} for time in times]
+
         vector_store = FAISS.from_texts(
             texts=texts,
-            embedding=custom_embeddings
+            embedding=custom_embeddings,
+            metadatas=metadatas  # 메타데이터 전달
         )
         return vector_store
 
@@ -65,7 +69,16 @@ class VideoService:
     async def get_transcript(self, video_id: str, language='ko'):
         try:
             transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=[language])
-            return ' '.join([item['text'] for item in transcript_list])
+
+            # 각 자막의 텍스트와 시작 시간만 저장
+            processed_transcript = []
+            times = []
+
+            for item in transcript_list:
+                processed_transcript.append(item['text'])
+                times.append(item['start'])
+
+            return ' '.join(processed_transcript), times
         except Exception as e:
             raise Exception(f"Error fetching transcript: {str(e)}")
 
@@ -108,18 +121,36 @@ class VideoService:
             # 1. 비디오 정보 가져오기
             video_info = await self.get_video_info(video_id)
 
-            # 2. 자막 가져오기
-            transcript = await self.get_transcript(video_id)
+            # 2. 자막 텍스트와 시간 정보 가져오기
+            transcript, times = await self.get_transcript(video_id)
 
             # 3. 트랜스크립트를 청크로 분할하고 벡터 저장소 생성
             chunks = self.text_splitter.split_text(transcript)
-            vector_store = self.create_vector_store(chunks)
+
+
+            # vector_store = self.create_vector_store(chunks)
+            # self.vector_stores[video_id] = vector_store
+
+            # 청크와 시간 매핑
+            chunk_times = []
+            total_length = len(transcript)
+            current_pos = 0
+
+            for chunk in chunks:
+                # 현재 청크의 상대적 위치에 따라 시간 매핑
+                position_ratio = current_pos / total_length
+                time_index = min(int(position_ratio * len(times)), len(times) - 1)
+                chunk_times.append(times[time_index])
+                current_pos += len(chunk)
+
+            # 4. 벡터 저장소 생성
+            vector_store = self.create_vector_store(chunks, chunk_times)
             self.vector_stores[video_id] = vector_store
 
-            # 4. 요약 프롬프트 생성
+            # 5. 요약 프롬프트 생성
             prompt = self._create_summary_prompt(transcript)
 
-            # 5. Gemini API를 사용하여 요약 생성
+            # 6. Gemini API를 사용하여 요약 생성
             response = self.model.generate_content(prompt)
 
             # 6. 결과 반환
@@ -145,7 +176,23 @@ class VideoService:
 
             # 3. 가장 유사한 컨텍스트 검색
             similar_chunks = vector_store.similarity_search_by_vector(question_embedding, k=3)
-            context = "\n".join([chunk.page_content for chunk in similar_chunks])
+
+            # 시간 정보와 함께 컨텍스트 구성
+            context_with_times = []
+            sources_with_times = []
+
+            for chunk in similar_chunks:
+                start_time = chunk.metadata.get("start", 0)  # 기본값 0으로 설정
+                # 컨텍스트에 시간 정보 포함
+                context_with_times.append(f"[{start_time}초] {chunk.page_content}")
+                # 출처 정보에 시간 정보 포함
+                sources_with_times.append({
+                    "text": chunk.page_content,
+                    "timestamp": start_time,
+                    "url": f"https://www.youtube.com/watch?v={video_id}&t={int(start_time)}"
+                })
+
+            context = "\n".join(context_with_times)
 
             # 4. QA 프롬프트 생성
             prompt = self._create_qa_prompt(context, question)
@@ -156,7 +203,7 @@ class VideoService:
             return {
                 "question": question,
                 "answer": response.text,
-                "sources": [chunk.page_content for chunk in similar_chunks]
+                "sources": sources_with_times  # 수정된 출처 형식
             }
         except Exception as e:
             raise Exception(f"Error generating answer: {str(e)}")

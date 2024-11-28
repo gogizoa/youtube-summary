@@ -3,24 +3,11 @@
   "name": "my-extension",
   "version": "1.0.0",
   "description": "",
-  "action": {
-    "default_popup": "index.html",
-    "default_width": 600,
-    "default_height": 400
-  },
-  "permissions": [
-    "activeTab",
-    "scripting",
-    "storage",
-    "http://localhost:8000/"
-  ],
-  "background": {
-    "service_worker": "background.js"
-  },
+  "permissions": ["tabs", "activeTab", "scripting", "storage"],
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/*"],
-      "js": ["content.js"]
+      "matches": ["<all_urls>"],
+      "js": ["assets/content.js"]
     }
   ],
   "host_permissions": ["https://www.youtube.com/*", "http://localhost:8000/*"]

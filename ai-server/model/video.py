@@ -1,7 +1,11 @@
 # app/models/video.py
 from typing import List
-
 from pydantic import BaseModel
+
+class Source(BaseModel):
+    text: str
+    timestamp: float
+    url: str
 
 class SummaryResponse(BaseModel):
     video_id: str
@@ -15,4 +19,4 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     question: str
     answer: str
-    sources: List[str]
+    sources: List[Source]
