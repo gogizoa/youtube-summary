@@ -1,26 +1,26 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { useVideoStore } from "../stores/VideoStore";
 
-export const SummaryTab = ({ video_info }) => {
+export const SummaryTab = () => {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const video = useVideoStore((state) => state.video);
 
   useEffect(() => {
-    fetchSummary();
-  }, []);
+    if (video) {
+      fetchSummary();
+    }
+  }, [video]);
 
   const fetchSummary = async () => {
     try {
-      if (typeof chrome === "undefined" || !chrome.storage) {
-        throw new Error("Chrome storage API not available");
-      }
-
       setLoading(true);
       setError(null);
 
       const response = await fetch(
-        `http://localhost:8000/api/summary/${video_info?.id}`,
+        `http://localhost:8000/api/summary/${video?.id}`,
         {
           headers: {
             Accept: "application/json",
